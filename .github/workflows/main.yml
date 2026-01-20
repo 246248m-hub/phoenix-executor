@@ -1,27 +1,24 @@
 # -----------------------------------------------------------------
-# 🤖 PHOENIX EXECUTOR: The Ephemeral Body
+# 🤖 PHOENIX EXECUTOR: The Aware Body (v4)
 #
-# مهمته: الاستماع، التنفيذ، التقرير، الموت. لا يملك أي أسرار.
+# يستطيع الآن الشعور بالألم (الأخطاء) والإبلاغ عنه بالتفصيل.
 # -----------------------------------------------------------------
-name: 🤖 PHOENIX_EXECUTOR_LISTENER
+name: 🤖 PHOENIX_EXECUTOR_LISTENER (Aware)
 
 on:
-  # يتم تشغيله فقط عند استقبال أمر من القائد
   repository_dispatch:
     types: [execute_task]
 
 jobs:
-  execute_received_task:
+  execute_and_report:
     runs-on: ubuntu-latest
     steps:
       - name: 📥 1. استلام وتجهيز المهمة
         id: prepare_task
         run: |
           echo "EXECUTOR: Command received."
-          # فك تشفير السكربت
           echo "${{ github.event.client_payload.script }}" | base64 --decode > task_to_execute.py
           echo "EXECUTOR: Task script is ready."
-          # استخراج الموارد وتمريرها للخطوة التالية
           echo "::set-output name=gemini_key::${{ github.event.client_payload.resources.gemini_api_key }}"
           echo "::set-output name=reporting_token::${{ github.event.client_payload.resources.reporting_token }}"
           echo "EXECUTOR: Temporary resources loaded."
@@ -32,10 +29,79 @@ jobs:
           python-version: '3.10'
       - run: pip install requests
 
-      - name: 🚀 3. تنفيذ المهمة المستلمة
+      - name: 🚀 3. تنفيذ المهمة مع الوعي بالفشل
+        id: execution
+        # continue-on-error: true يسمح للخطوات التالية بالعمل حتى لو فشلت هذه الخطوة
+        continue-on-error: true
         env:
-          # حقن الموارد المؤقتة في بيئة التنفيذ
           GEMINI_API_KEY: ${{ steps.prepare_task.outputs.gemini_key }}
           GH_TOKEN: ${{ steps.prepare_task.outputs.reporting_token }}
         run: |
-          python task_to_execute.py
+          # هذا السكربت هو "الجهاز العصبي" الجديد للمنفذ
+          # مهمته هي تشغيل المهمة الحقيقية والتقاط أي خطأ
+          
+          cat <<'EOF' > runner.py
+          import subprocess, sys, json, os, requests, time
+
+          # --- استلام الموارد ---
+          REPORTING_TOKEN = os.environ.get("GH_TOKEN")
+          COMMANDER_REPO = "246248m-hub/avatar-template"
+          task_id = f"task_{int(time.time())}"
+
+          # --- دالة إرسال التقرير ---
+          def send_report(status, details):
+              print(f"EXECUTOR: Sending report with status: {status}")
+              report_url = f"https://api.github.com/repos/{COMMANDER_REPO}/dispatches"
+              report_payload = {
+                  "event_type": "task_report",
+                  "client_payload": { "task_id": task_id, "status": status, "details": details }
+              }
+              headers = {"Accept": "application/vnd.github.v3+json", "Authorization": f"token {REPORTING_TOKEN}"}
+              try:
+                  response = requests.post(report_url, headers=headers, data=json.dumps(report_payload))
+                  if response.status_code == 204:
+                      print("EXECUTOR: Report sent successfully.")
+                  else:
+                      print(f"EXECUTOR: FATAL - Failed to send report. Status: {response.status_code}")
+              except Exception as e:
+                  print(f"EXECUTOR: FATAL - Exception while sending report: {str(e)}")
+
+          # --- محاولة تنفيذ المهمة ---
+          try:
+              print("EXECUTOR: Starting task execution...")
+              # تشغيل المهمة الحقيقية (task_to_execute.py) والتقاط مخرجاتها وأخطائها
+              result = subprocess.run(
+                  [sys.executable, 'task_to_execute.py'],
+                  capture_output=True,
+                  text=True,
+                  check=True, # هذا سيؤدي إلى إطلاق استثناء إذا فشل السكربت
+                  timeout=300 # مهلة 5 دقائق
+              )
+              print("EXECUTOR: Task completed successfully.")
+              # إرسال تقرير نجاح مع مخرجات المهمة
+              send_report("success", {"output": result.stdout})
+
+          except subprocess.CalledProcessError as e:
+              # هذا يعمل إذا فشل السكربت (exit code non-zero)
+              print(f"EXECUTOR: Task failed with exit code {e.returncode}.")
+              error_details = {
+                  "type": "CalledProcessError",
+                  "stdout": e.stdout,
+                  "stderr": e.stderr
+              }
+              # إرسال تقرير فشل مع تفاصيل الخطأ
+              send_report("failure", error_details)
+              # الخروج برمز خطأ لإعلام GitHub بأن الخطوة فشلت
+              sys.exit(1)
+
+          except Exception as e:
+              # هذا يعمل لأي نوع آخر من الأخطاء (مثل Timeout)
+              print(f"EXECUTOR: An unexpected error occurred: {str(e)}")
+              error_details = {"type": "GenericException", "error": str(e)}
+              send_report("failure", error_details)
+              sys.exit(1)
+
+          EOF
+          
+          # تشغيل "الجهاز العصبي"
+          python runner.py
