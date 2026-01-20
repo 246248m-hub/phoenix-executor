@@ -1,0 +1,41 @@
+# -----------------------------------------------------------------
+# 🤖 PHOENIX EXECUTOR: The Ephemeral Body
+#
+# مهمته: الاستماع، التنفيذ، التقرير، الموت. لا يملك أي أسرار.
+# -----------------------------------------------------------------
+name: 🤖 PHOENIX_EXECUTOR_LISTENER
+
+on:
+  # يتم تشغيله فقط عند استقبال أمر من القائد
+  repository_dispatch:
+    types: [execute_task]
+
+jobs:
+  execute_received_task:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 1. استلام وتجهيز المهمة
+        id: prepare_task
+        run: |
+          echo "EXECUTOR: Command received."
+          # فك تشفير السكربت
+          echo "${{ github.event.client_payload.script }}" | base64 --decode > task_to_execute.py
+          echo "EXECUTOR: Task script is ready."
+          # استخراج الموارد وتمريرها للخطوة التالية
+          echo "::set-output name=gemini_key::${{ github.event.client_payload.resources.gemini_api_key }}"
+          echo "::set-output name=reporting_token::${{ github.event.client_payload.resources.reporting_token }}"
+          echo "EXECUTOR: Temporary resources loaded."
+
+      - name: 🐍 2. تهيئة بيئة التنفيذ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: pip install requests
+
+      - name: 🚀 3. تنفيذ المهمة المستلمة
+        env:
+          # حقن الموارد المؤقتة في بيئة التنفيذ
+          GEMINI_API_KEY: ${{ steps.prepare_task.outputs.gemini_key }}
+          GH_TOKEN: ${{ steps.prepare_task.outputs.reporting_token }}
+        run: |
+          python task_to_execute.py
