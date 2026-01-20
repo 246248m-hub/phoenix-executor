@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------
-# 🤖 PHOENIX EXECUTOR: The Aware Body (v4)
+# 🤖 PHOENIX EXECUTOR: The Aware Body (v4.1)
 #
-# يستطيع الآن الشعور بالألم (الأخطاء) والإبلاغ عنه بالتفصيل.
+# يستطيع الآن إعادة الكود الأصلي الذي سبب الفشل لتسهيل التصحيح.
 # -----------------------------------------------------------------
 name: 🤖 PHOENIX_EXECUTOR_LISTENER (Aware)
 
@@ -17,10 +17,17 @@ jobs:
         id: prepare_task
         run: |
           echo "EXECUTOR: Command received."
+          # استلام السكربت المطلوب تنفيذه
           echo "${{ github.event.client_payload.script }}" | base64 --decode > task_to_execute.py
           echo "EXECUTOR: Task script is ready."
+          
+          # استخراج الموارد وتمريرها للخطوات التالية
           echo "::set-output name=gemini_key::${{ github.event.client_payload.resources.gemini_api_key }}"
           echo "::set-output name=reporting_token::${{ github.event.client_payload.resources.reporting_token }}"
+          
+          # استخراج الكود الأصلي (المستخدم في حالة الفشل) وتمريره
+          echo "::set-output name=original_script_b64::${{ github.event.client_payload.original_script_for_debugging }}"
+          
           echo "EXECUTOR: Temporary resources loaded."
 
       - name: 🐍 2. تهيئة بيئة التنفيذ
@@ -31,17 +38,17 @@ jobs:
 
       - name: 🚀 3. تنفيذ المهمة مع الوعي بالفشل
         id: execution
-        # continue-on-error: true يسمح للخطوات التالية بالعمل حتى لو فشلت هذه الخطوة
-        continue-on-error: true
         env:
+          # حقن كل الموارد اللازمة في بيئة التنفيذ
           GEMINI_API_KEY: ${{ steps.prepare_task.outputs.gemini_key }}
           GH_TOKEN: ${{ steps.prepare_task.outputs.reporting_token }}
+          ORIGINAL_SCRIPT_B64: ${{ steps.prepare_task.outputs.original_script_b64 }}
         run: |
           # هذا السكربت هو "الجهاز العصبي" الجديد للمنفذ
           # مهمته هي تشغيل المهمة الحقيقية والتقاط أي خطأ
           
           cat <<'EOF' > runner.py
-          import subprocess, sys, json, os, requests, time
+          import subprocess, sys, json, os, requests, time, base64
 
           # --- استلام الموارد ---
           REPORTING_TOKEN = os.environ.get("GH_TOKEN")
@@ -52,17 +59,30 @@ jobs:
           def send_report(status, details):
               print(f"EXECUTOR: Sending report with status: {status}")
               report_url = f"https://api.github.com/repos/{COMMANDER_REPO}/dispatches"
+              
+              # استلام الكود الأصلي من متغيرات البيئة وفك تشفيره
+              original_script_b64 = os.environ.get("ORIGINAL_SCRIPT_B64", "")
+              try:
+                  original_script = base64.b64decode(original_script_b64).decode('utf-8')
+              except Exception as e:
+                  original_script = f"# Could not decode original script: {str(e)}"
+
+              # إضافة الكود الأصلي إلى تفاصيل الفشل
+              if status == 'failure':
+                  details['original_script'] = original_script
+
               report_payload = {
                   "event_type": "task_report",
                   "client_payload": { "task_id": task_id, "status": status, "details": details }
               }
               headers = {"Accept": "application/vnd.github.v3+json", "Authorization": f"token {REPORTING_TOKEN}"}
+              
               try:
                   response = requests.post(report_url, headers=headers, data=json.dumps(report_payload))
                   if response.status_code == 204:
                       print("EXECUTOR: Report sent successfully.")
                   else:
-                      print(f"EXECUTOR: FATAL - Failed to send report. Status: {response.status_code}")
+                      print(f"EXECUTOR: FATAL - Failed to send report. Status: {response.status_code}, Body: {response.text}")
               except Exception as e:
                   print(f"EXECUTOR: FATAL - Exception while sending report: {str(e)}")
 
@@ -91,8 +111,7 @@ jobs:
               }
               # إرسال تقرير فشل مع تفاصيل الخطأ
               send_report("failure", error_details)
-              # الخروج برمز خطأ لإعلام GitHub بأن الخطوة فشلت
-              sys.exit(1)
+              sys.exit(1) # الخروج برمز خطأ لإعلام GitHub بأن الخطوة فشلت
 
           except Exception as e:
               # هذا يعمل لأي نوع آخر من الأخطاء (مثل Timeout)
