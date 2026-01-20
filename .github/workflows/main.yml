@@ -1,108 +1,106 @@
-name: 🦾 UNIVERSAL EXECUTOR (Final Version)
+name: 🧬 GENESIS COMMANDER
 
 on:
   workflow_dispatch:
-    inputs:
-      task_payload:
-        description: 'The Python code to execute'
-        required: true
-      commander_repo:
-        description: 'The repo of the commander (e.g., user/repo)'
-        required: true
-      run_id:
-        description: 'The original run_id from the commander'
-        required: true
 
 jobs:
-  execute_universal_task:
+  genesis_learning_cycle:
     runs-on: ubuntu-latest
     steps:
-      # -----------------------------------------------------
-      #  الخطوة 1: إعداد بيئة التنفيذ
-      # -----------------------------------------------------
-      - name: 1.1 - Checkout Code (for local tools if any)
+      # 1. إعداد المستودع والأدوات
+      - name: 1.1 - Checkout Repository
         uses: actions/checkout@v4
-
-      - name: 1.2 - Setup Python
-        uses: actions/setup-python@v3
         with:
-          python-version: '3.10'
+          token: ${{ secrets.COMMANDER_PAT }}
 
-      # -----------------------------------------------------
-      #  الخطوة 2: التنفيذ الذكي والتقاط الأخطاء
-      # -----------------------------------------------------
-      - name: 2.1 - Execute Task and Capture Output/Errors
-        id: execution
+      - name: 1.2 - Setup Environment
         run: |
-          # --- بداية "الجهاز العصبي" للمنفذ ---
-          
-          # 1. استلام الكود من القائد وحفظه في ملف
-          echo "EXECUTOR: Task received. Preparing for execution."
-          echo "${{ github.event.inputs.task_payload }}" > task_to_run.py
+          sudo apt-get update && sudo apt-get install -y jq
+          mkdir -p knowledge_base
 
-          # 2. (المرونة) البحث عن متطلبات التثبيت داخل الكود
-          # هذا يسمح للقائد بتحديد المكتبات التي يحتاجها المنفذ
-          if grep -q "# REQUIREMENTS:" task_to_run.py; then
-            echo "EXECUTOR: Found requirements directive. Installing libraries..."
-            # استخراج السطر الذي يحتوي على المكتبات وتثبيتها
-            grep "# REQUIREMENTS:" task_to_run.py | sed 's/# REQUIREMENTS: //' | xargs -r pip install
+      # 2. استدعاء Gemini (باستخدام الرابط الذي أثبت نجاحه في تيرمكس)
+      - name: 2.1 - Gemini Generation
+        id: gemini_task
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          KNOWLEDGE=$(find knowledge_base -maxdepth 1 -name '*.py' -print0 | xargs -0 cat 2>/dev/null || echo "Initial lesson.")
+          PROMPT="You are an AI teacher. Current knowledge: $KNOWLEDGE. Provide ONLY the next Python lesson code. No markdown, no explanations. Just raw code."
+          JSON_DATA=$(jq -n --arg p "$PROMPT" '{contents: [{parts: [{text: $p}]}]}')
+
+          # الرابط الذي نجح معك
+          API_URL="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
+          
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-goog-api-key: ${GOOGLE_API_KEY}" \
+            -d "$JSON_DATA" \
+            "$API_URL")
+
+          # استخراج الكود وتنظيفه
+          TASK_CODE=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' | sed -e 's/^```python//' -e 's/^```//' -e 's/```$//' | sed '/./,$!d')
+
+          if [ -z "$TASK_CODE" ] || [ "$TASK_CODE" == "null" ]; then
+            echo "❌ Error: API Response failed."
+            echo "$RESPONSE"
+            exit 1
           fi
-
-          # 3. (الطاعة المطلقة) تنفيذ الكود والتقاط المخرجات والأخطاء
-          echo "EXECUTOR: Starting execution..."
-          # نستخدم 'bash -c' لالتقاط كود الخروج (exit code) بشكل موثوق
-          # ونقوم بتوجيه مخرجات الخطأ (stderr) إلى مخرجات النجاح (stdout)
-          EXECUTION_OUTPUT=$(python task_to_run.py 2>&1)
-          EXIT_CODE=$?
           
-          echo "EXECUTOR: Execution finished with exit code: $EXIT_CODE"
+          echo "task_payload<<EOF" >> $GITHUB_ENV
+          echo "$TASK_CODE" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-          # 4. (التقرير المفصل) تجهيز التقرير لإرساله
-          # نستخدم محدداً فريداً (EOF_MARKER) لضمان عدم تداخل المخرجات
-          echo "EXECUTION_OUTPUT<<EOF_MARKER" >> $GITHUB_ENV
-          echo "$EXECUTION_OUTPUT" >> $GITHUB_ENV
-          echo "EOF_MARKER" >> $GITHUB_ENV
-          
-          echo "EXIT_CODE=$EXIT_CODE" >> $GITHUB_ENV
-          
-          # --- نهاية "الجهاز العصبي" للمنفذ ---
-
-      # -----------------------------------------------------
-      #  الخطوة 3: إرسال التقرير النهائي إلى القائد
-      # -----------------------------------------------------
-      - name: 3.1 - Report Back to Commander
-        uses: actions/github-script@v7
+      # 3. إرسال المهمة للمنفذ (Executor)
+      - name: 3.1 - Dispatch Task to Executor
+        uses: benc-uk/workflow-dispatch@v1
         with:
-          github-token: ${{ secrets.COMMANDER_PAT }} # مفتاح القائد للتعليق في مستودعه
-          script: |
-            const commander_repo_parts = "${{ github.event.inputs.commander_repo }}".split('/');
-            const owner = commander_repo_parts[0];
-            const repo = commander_repo_parts[1];
-            const run_id = ${{ github.event.inputs.run_id }};
-            
-            const exit_code = parseInt(process.env.EXIT_CODE);
-            const output = process.env.EXECUTION_OUTPUT;
-            
-            const status = (exit_code === 0) ? "✅ SUCCESS" : "❌ FAILURE";
-            
-            // تجهيز تقرير مفصل ومنظم
-            const report_body = `
-            ## 🤖 UNIVERSAL_EXECUTOR_REPORT ##
-            - **Status:** ${status}
-            - **Exit Code:** ${exit_code}
-            - **Commander Run ID:** ${run_id}
-            ---
-            ### Full Log:
-            \`\`\`
-            ${output}
-            \`\`\`
-            `;
+          workflow: executor.yml
+          repo: 246248m-hub/phoenix-executor
+          token: ${{ secrets.COMMANDER_PAT }}
+          inputs: >
+            {
+              "task_payload": ${{ toJson(env.task_payload) }},
+              "commander_repo": "${{ github.repository }}",
+              "run_id": "${{ github.run_id }}"
+            }
 
-            await github.rest.actions.createWorkflowRunComment({
-              owner,
-              repo,
-              run_id,
-              body: report_body
-            });
-            
-            console.log(`EXECUTOR: Report sent back to commander.`);
+      # 4. أرشفة الدرس وتحديث لوحة التحكم
+      - name: 4.1 - Archive Knowledge & Update README
+        if: success()
+        run: |
+          LESSON_NUM=$(($(find knowledge_base -maxdepth 1 -name '*.py' | wc -l) + 1))
+          echo "${{ env.task_payload }}" > "knowledge_base/lesson_${LESSON_NUM}.py"
+          
+          # تحديث ملف الـ README ليكون لوحة تحكم
+          cat << EOF > README.md
+          # 🧠 PHOENIX KNOWLEDGE BASE
+          
+          ## 📊 Learning Progress
+          - **Total Lessons:** $LESSON_NUM
+          - **Last Update:** $(date -u)
+          - **Status:** 🟢 Active & Learning
+          
+          ## 📚 Latest Skill Acquired
+          The AI has archived \`lesson_${LESSON_NUM}.py\`.
+          
+          ---
+          *Auto-generated by Genesis Commander*
+          EOF
+          
+          git config --global user.name 'Genesis Teacher'
+          git config --global user.email 'bot@github.com'
+          git add .
+          git commit -m "Learned: Lesson ${LESSON_NUM}"
+          git push || echo "No changes to commit"
+
+      # 5. الإحياء الذاتي (دورة جديدة بعد 5 دقائق)
+      - name: 5.1 - Resurrect
+        if: always()
+        run: |
+          echo "Waiting 300s to protect API quota..."
+          sleep 300
+          curl -L -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.COMMANDER_PAT }}" \
+            [https://api.github.com/repos/$](https://api.github.com/repos/$){{ github.repository }}/actions/workflows/genesis_commander.yml/dispatches \
+            -d '{"ref":"main"}'
