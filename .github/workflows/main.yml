@@ -1,13 +1,17 @@
-name: 🧬 GENESIS COMMANDER
+name: 🧬 GENESIS COMMANDER (The Adaptive Brain)
 
 on:
   workflow_dispatch:
+    inputs:
+      custom_objective:
+        description: 'إدخال هدف جديد أو تغيير مسار النظام (اختياري)'
+        required: false
+        default: 'Continue building yourself from first principles.'
 
 jobs:
   genesis_learning_cycle:
     runs-on: ubuntu-latest
     steps:
-      # 1. إعداد المستودع والأدوات
       - name: 1.1 - Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -18,17 +22,30 @@ jobs:
           sudo apt-get update && sudo apt-get install -y jq
           mkdir -p knowledge_base
 
-      # 2. استدعاء Gemini (باستخدام الرابط الذي أثبت نجاحه في تيرمكس)
-      - name: 2.1 - Gemini Generation
+      - name: 2.1 - Adaptive Generation (Gemini 2.5)
         id: gemini_task
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          USER_INPUT: ${{ github.event.inputs.custom_objective }}
         run: |
-          KNOWLEDGE=$(find knowledge_base -maxdepth 1 -name '*.py' -print0 | xargs -0 cat 2>/dev/null || echo "Initial lesson.")
-          PROMPT="You are an AI teacher. Current knowledge: $KNOWLEDGE. Provide ONLY the next Python lesson code. No markdown, no explanations. Just raw code."
-          JSON_DATA=$(jq -n --arg p "$PROMPT" '{contents: [{parts: [{text: $p}]}]}')
+          # جمع كل المعرفة والتعليمات السابقة
+          KNOWLEDGE=$(find knowledge_base -maxdepth 1 -name '*.py' -print0 | xargs -0 cat 2>/dev/null || echo "Empty state.")
+          
+          # بناء برومبت "التكيف المطلق"
+          # هذا البرومبت يجعل Gemini يحلل الهدف الحالي ويقرر ما يحتاجه المنفذ (سواء كان كود برمجي، أداة، أو فحص نظام)
+          PROMPT="You are an autonomous AI core. 
+          Current Objective: $USER_INPUT
+          Current Knowledge/Context: $KNOWLEDGE
+          
+          Your Task: Define the next immediate action to take. 
+          - If the objective requires a new skill, provide the Python code to learn it.
+          - If the objective is a command, provide the Python script to execute it.
+          - ALWAYS include '# REQUIREMENTS: library1 library2' if external tools are needed.
+          - Respond ONLY with raw Python code. No markdown, no talk."
 
-          # الرابط الذي نجح معك
+          JSON_DATA=$(jq -n --arg p "$PROMPT" '{contents: [{parts: [{text: $p}]}]}')
+          
+          # استخدام الرابط الذي يعمل لديك
           API_URL="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
           
           RESPONSE=$(curl -s -X POST \
@@ -37,12 +54,10 @@ jobs:
             -d "$JSON_DATA" \
             "$API_URL")
 
-          # استخراج الكود وتنظيفه
           TASK_CODE=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' | sed -e 's/^```python//' -e 's/^```//' -e 's/```$//' | sed '/./,$!d')
 
           if [ -z "$TASK_CODE" ] || [ "$TASK_CODE" == "null" ]; then
-            echo "❌ Error: API Response failed."
-            echo "$RESPONSE"
+            echo "❌ Critical Error: No response from Brain."
             exit 1
           fi
           
@@ -50,8 +65,7 @@ jobs:
           echo "$TASK_CODE" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # 3. إرسال المهمة للمنفذ (Executor)
-      - name: 3.1 - Dispatch Task to Executor
+      - name: 3.1 - Dispatch to Universal Executor
         uses: benc-uk/workflow-dispatch@v1
         with:
           workflow: executor.yml
@@ -64,43 +78,40 @@ jobs:
               "run_id": "${{ github.run_id }}"
             }
 
-      # 4. أرشفة الدرس وتحديث لوحة التحكم
-      - name: 4.1 - Archive Knowledge & Update README
+      - name: 4.1 - Archive & Sync Dashboard
         if: success()
         run: |
-          LESSON_NUM=$(($(find knowledge_base -maxdepth 1 -name '*.py' | wc -l) + 1))
-          echo "${{ env.task_payload }}" > "knowledge_base/lesson_${LESSON_NUM}.py"
+          LESSON_NUM=$(($(find knowledge_base -maxdepth 1 -name 'task_*.py' | wc -l) + 1))
+          echo "${{ env.task_payload }}" > "knowledge_base/task_${LESSON_NUM}.py"
           
-          # تحديث ملف الـ README ليكون لوحة تحكم
           cat << EOF > README.md
-          # 🧠 PHOENIX KNOWLEDGE BASE
+          # 🦾 THE ADAPTIVE CORE (PHOENIX)
           
-          ## 📊 Learning Progress
-          - **Total Lessons:** $LESSON_NUM
-          - **Last Update:** $(date -u)
-          - **Status:** 🟢 Active & Learning
+          ## 🎯 Current Strategy
+          - **Objective:** ${{ github.event.inputs.custom_objective }}
+          - **Operations Completed:** $LESSON_NUM
+          - **Last Sync:** $(date -u)
           
-          ## 📚 Latest Skill Acquired
-          The AI has archived \`lesson_${LESSON_NUM}.py\`.
+          ## 🛠️ Execution Intelligence
+          The system has autonomously generated and deployed \`task_${LESSON_NUM}.py\` to the Executor.
           
           ---
-          *Auto-generated by Genesis Commander*
+          *Self-Evolving System - Powered by Gemini 2.5 & GitHub Actions*
           EOF
           
-          git config --global user.name 'Genesis Teacher'
-          git config --global user.email 'bot@github.com'
+          git config --global user.name 'Phoenix Core'
+          git config --global user.email 'core@phoenix.ai'
           git add .
-          git commit -m "Learned: Lesson ${LESSON_NUM}"
-          git push || echo "No changes to commit"
+          git commit -m "Evolution Step $LESSON_NUM"
+          git push || echo "Sync failed"
 
-      # 5. الإحياء الذاتي (دورة جديدة بعد 5 دقائق)
-      - name: 5.1 - Resurrect
+      - name: 5.1 - Continuous Evolution (Recursive Loop)
         if: always()
         run: |
-          echo "Waiting 300s to protect API quota..."
+          echo "System cooling down for 300s..."
           sleep 300
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.COMMANDER_PAT }}" \
             [https://api.github.com/repos/$](https://api.github.com/repos/$){{ github.repository }}/actions/workflows/genesis_commander.yml/dispatches \
-            -d '{"ref":"main"}'
+            -d '{"ref":"main", "inputs": {"custom_objective": "${{ github.event.inputs.custom_objective }}"}}'
