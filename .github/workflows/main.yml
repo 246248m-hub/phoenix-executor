@@ -1,51 +1,45 @@
-name: 🧬 GENESIS COMMANDER (The Adaptive Brain)
+name: 🧬 GENESIS COMMANDER (The Architect)
 
 on:
   workflow_dispatch:
     inputs:
       custom_objective:
-        description: 'إدخال هدف جديد أو تغيير مسار النظام (اختياري)'
+        description: 'Objective'
         required: false
-        default: 'Continue building yourself from first principles.'
+        default: 'Build a modular AI core from scratch: Start with a persistent memory management system and a dynamic execution engine.'
 
 jobs:
   genesis_learning_cycle:
     runs-on: ubuntu-latest
     steps:
-      - name: 1.1 - Checkout Repository
+      - name: 1.1 - Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.COMMANDER_PAT }}
 
-      - name: 1.2 - Setup Environment
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-          mkdir -p knowledge_base
+      - name: 1.2 - Setup
+        run: mkdir -p knowledge_base
 
-      - name: 2.1 - Adaptive Generation (Gemini 2.5)
+      - name: 2.1 - Architect Generation (Gemini 2.5)
         id: gemini_task
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          USER_INPUT: ${{ github.event.inputs.custom_objective }}
+          OBJECTIVE: ${{ github.event.inputs.custom_objective }}
         run: |
-          # جمع كل المعرفة والتعليمات السابقة
-          KNOWLEDGE=$(find knowledge_base -maxdepth 1 -name '*.py' -print0 | xargs -0 cat 2>/dev/null || echo "Empty state.")
+          KNOWLEDGE=$(find knowledge_base -maxdepth 1 -name 'task_*.py' -print0 | xargs -0 cat 2>/dev/null | tail -c 4000 || echo "Initial State: No core exists yet.")
           
-          # بناء برومبت "التكيف المطلق"
-          # هذا البرومبت يجعل Gemini يحلل الهدف الحالي ويقرر ما يحتاجه المنفذ (سواء كان كود برمجي، أداة، أو فحص نظام)
-          PROMPT="You are an autonomous AI core. 
-          Current Objective: $USER_INPUT
-          Current Knowledge/Context: $KNOWLEDGE
+          # برومبت البناء من الصفر
+          PROMPT="You are the ARCHITECT AI. 
+          OBJECTIVE: $OBJECTIVE
+          CURRENT_CORE_FILES: $KNOWLEDGE
           
-          Your Task: Define the next immediate action to take. 
-          - If the objective requires a new skill, provide the Python code to learn it.
-          - If the objective is a command, provide the Python script to execute it.
-          - ALWAYS include '# REQUIREMENTS: library1 library2' if external tools are needed.
-          - Respond ONLY with raw Python code. No markdown, no talk."
+          Your Task: Write the next Python module for this AI system.
+          - DO NOT use pre-trained models (like GPT2/Transformers).
+          - Build everything from basic Python logic and standard libraries.
+          - Create actual functional components (Memory, Routing, Logic Gates, or Data structures).
+          - Respond ONLY with raw Python code. Start with # REQUIREMENTS: if needed."
 
           JSON_DATA=$(jq -n --arg p "$PROMPT" '{contents: [{parts: [{text: $p}]}]}')
-          
-          # استخدام الرابط الذي يعمل لديك
           API_URL="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
           
           RESPONSE=$(curl -s -X POST \
@@ -57,7 +51,7 @@ jobs:
           TASK_CODE=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' | sed -e 's/^```python//' -e 's/^```//' -e 's/```$//' | sed '/./,$!d')
 
           if [ -z "$TASK_CODE" ] || [ "$TASK_CODE" == "null" ]; then
-            echo "❌ Critical Error: No response from Brain."
+            echo "❌ API Error"
             exit 1
           fi
           
@@ -65,7 +59,7 @@ jobs:
           echo "$TASK_CODE" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      - name: 3.1 - Dispatch to Universal Executor
+      - name: 3.1 - Dispatch to Executor
         uses: benc-uk/workflow-dispatch@v1
         with:
           workflow: executor.yml
@@ -78,37 +72,20 @@ jobs:
               "run_id": "${{ github.run_id }}"
             }
 
-      - name: 4.1 - Archive & Sync Dashboard
+      - name: 4.1 - Update Core Knowledge
         if: success()
         run: |
-          LESSON_NUM=$(($(find knowledge_base -maxdepth 1 -name 'task_*.py' | wc -l) + 1))
-          echo "${{ env.task_payload }}" > "knowledge_base/task_${LESSON_NUM}.py"
-          
-          cat << EOF > README.md
-          # 🦾 THE ADAPTIVE CORE (PHOENIX)
-          
-          ## 🎯 Current Strategy
-          - **Objective:** ${{ github.event.inputs.custom_objective }}
-          - **Operations Completed:** $LESSON_NUM
-          - **Last Sync:** $(date -u)
-          
-          ## 🛠️ Execution Intelligence
-          The system has autonomously generated and deployed \`task_${LESSON_NUM}.py\` to the Executor.
-          
-          ---
-          *Self-Evolving System - Powered by Gemini 2.5 & GitHub Actions*
-          EOF
-          
-          git config --global user.name 'Phoenix Core'
-          git config --global user.email 'core@phoenix.ai'
+          NEXT=$(( $(find knowledge_base -maxdepth 1 -name 'task_*.py' | wc -l) + 1 ))
+          echo "${{ env.task_payload }}" > "knowledge_base/task_${NEXT}.py"
+          git config --global user.name 'Phoenix Architect'
+          git config --global user.email 'architect@phoenix.ai'
           git add .
-          git commit -m "Evolution Step $LESSON_NUM"
-          git push || echo "Sync failed"
+          git commit -m "Core Evolution: Task $NEXT"
+          git push || echo "No changes"
 
-      - name: 5.1 - Continuous Evolution (Recursive Loop)
+      - name: 5.1 - Recursive Loop
         if: always()
         run: |
-          echo "System cooling down for 300s..."
           sleep 300
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
