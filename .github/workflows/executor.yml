@@ -12,47 +12,30 @@ jobs:
   execute:
     runs-on: ubuntu-latest
     steps:
-      - name: 1.1 - Secure Checkout
+      - name: 1.1 - Checkout
         uses: actions/checkout@v4
 
-      - name: 1.2 - Payload Decoding
+      - name: 1.2 - Decode
         run: |
-          # فك التشفير لاستعادة الكود الأصلي
           echo "${{ github.event.inputs.task_payload }}" | base64 -d > task.py
-          
-          if [ ! -s task.py ]; then
-            echo "❌ CRITICAL: Payload is empty!"
-            exit 1
-          fi
+          if [ ! -s task.py ]; then exit 1; fi
 
-      - name: 2.1 - Auto-Dependency Injection
+      - name: 2.1 - Auto-Deps
         run: |
-          echo "🔍 Scanning imports..."
           IMPORTS=$(grep -E '^(import|from)' task.py | awk '{print $2}' | cut -d. -f1 | sort -u)
           for lib in $IMPORTS; do
-            if ! python3 -c "import $lib" 2>/dev/null; then
-              echo "📦 Installing: $lib"
-              pip install $lib || echo "⚠️ Skip $lib"
-            fi
+            python3 -c "import $lib" 2>/dev/null || pip install --no-cache-dir $lib || true
           done
 
-      - name: 3.1 - Robust Execution
+      - name: 3.1 - Run
         run: |
-          echo "🚀 Executing..."
-          # تشغيل الكود والتقاط النتائج
-          python3 -u task.py 2>&1 | tee execution_output.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ Execution Failed"
-            exit 1
-          fi
+          python3 -u task.py 2>&1 | tee execution.log
+          [ ${PIPESTATUS[0]} -eq 0 ] || exit 1
 
-      - name: 4.1 - Summary Report
+      - name: 4.1 - Summary
         if: always()
         run: |
-          echo "### 🌐 Universal Executor Report" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commander Run ID:** ${{ github.event.inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "#### 📜 Execution Log:" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌐 Executor Report" >> $GITHUB_STEP_SUMMARY
           echo '```python' >> $GITHUB_STEP_SUMMARY
-          cat execution_output.log >> $GITHUB_STEP_SUMMARY
+          [ -f execution.log ] && cat execution.log >> $GITHUB_STEP_SUMMARY || echo "No logs" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
