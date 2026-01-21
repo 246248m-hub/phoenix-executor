@@ -1,38 +1,71 @@
-name: 🛠️ PHOENIX EXECUTOR
+name: 🛠️ UNIVERSAL PHOENIX EXECUTOR
 
 on:
   workflow_dispatch:
     inputs:
       task_payload:
+        description: 'The code or logic sent by any Commander'
         required: true
       run_id:
+        description: 'Reference ID from the Commander'
         required: false
 
 jobs:
-  execute:
+  dynamic_execution:
     runs-on: ubuntu-latest
     steps:
-      - name: 1.1 - Prepare Task
-        run: |
-          echo "${{ github.event.inputs.task_payload }}" > task.py
-          if [ ! -s task.py ]; then echo "❌ Empty Payload"; exit 1; fi
+      - name: 1.1 - Secure Checkout
+        uses: actions/checkout@v4
 
-      - name: 2.1 - Run & Debug
+      - name: 1.2 - Payload Sanitization
         run: |
-          echo "--- EXECUTION START ---"
-          # تشغيل الكود وتخزين المخرجات والخطأ
-          python3 -u task.py 2>&1 | tee execution_output.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ Execution Failed"
+          # استقبال الحمولة وتنظيفها من أي زوائد Markdown
+          echo "${{ github.event.inputs.task_payload }}" > raw_payload.txt
+          cat raw_payload.txt | sed -e 's/^```python//' -e 's/^```//' -e 's/```$//' > task.py
+          
+          if [ ! -s task.py ]; then
+            echo "❌ CRITICAL: Received empty payload!"
             exit 1
           fi
-          echo "--- SUCCESS ---"
 
-      - name: 3.1 - Generate Summary
+      - name: 2.1 - Auto-Dependency Injection
+        run: |
+          echo "🔍 Analyzing code for required libraries..."
+          # استخراج جميع الـ imports من الكود وتثبيتها تلقائياً
+          IMPORTS=$(grep -E '^(import|from)' task.py | awk '{print $2}' | cut -d. -f1 | sort -u)
+          for lib in $IMPORTS; do
+            if ! python3 -c "import $lib" 2>/dev/null; then
+              echo "📦 Installing missing library: $lib"
+              pip install $lib || echo "⚠️ Could not install $lib, skipping..."
+            fi
+          done
+
+      - name: 3.1 - Robust Execution
+        id: run_code
+        run: |
+          echo "🚀 Starting AI Logic Execution..."
+          echo "--- EXECUTION OUTPUT ---"
+          # تشغيل مع التقاط شامل لكل المخرجات (Errors + Output)
+          python3 -u task.py 2>&1 | tee execution.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "--- END OF OUTPUT ---"
+          
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "❌ Logic failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 4.1 - Adaptive Reporting
         if: always()
         run: |
-          echo "### 🚀 Evolution Summary" >> $GITHUB_STEP_SUMMARY
-          echo "#### Output Log:" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌐 Universal Executor Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ steps.run_code.outputs.status == 'success' && '✅ SUCCESS' || '❌ FAILED' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commander Run ID:** ${{ github.event.inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **System Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "#### 📜 Execution Log:" >> $GITHUB_STEP_SUMMARY
           echo '```python' >> $GITHUB_STEP_SUMMARY
-          cat execution_output.log >> $GITHUB_STEP_SUMMARY
+          cat execution.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
