@@ -12,29 +12,36 @@ jobs:
   execute:
     runs-on: ubuntu-latest
     steps:
-      - name: 1.1 - Setup
+      - name: 1.1 - Prepare Task
         run: |
+          # استقبال الكود وحفظه
           echo "${{ github.event.inputs.task_payload }}" > task.py
-          echo "--- CODE RECEIVED ---"
-          cat task.py
+          
+          # فحص بسيط للتأكد من أن الملف ليس فارغاً أو تالفاً
+          if [ ! -s task.py ]; then
+            echo "❌ Task file is empty"
+            exit 1
+          fi
 
-      - name: 2.1 - Run & Debug
+      - name: 2.1 - Run & Capture Logs
         run: |
           echo "--- EXECUTION START ---"
-          # تشغيل الكود مع صيد الأخطاء فوراً
+          # تشغيل مع دمج الخطأ والمخرجات (Standard Out & Error)
           python3 -u task.py 2>&1 | tee execution_output.log
           
-          # فحص إذا كان هناك فشل
+          # التأكد من نجاح تشغيل بايثون
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ Execution Failed"
+            echo "❌ Execution Failed with errors"
             exit 1
           fi
           echo "--- EXECUTION SUCCESS ---"
 
-      - name: 3.1 - Summary
+      - name: 3.1 - Generate Report
         if: always()
         run: |
-          echo "### Task ID: ${{ github.event.inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Evolution Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commander ID:** ${{ github.event.inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "#### Output Log:" >> $GITHUB_STEP_SUMMARY
           echo '```python' >> $GITHUB_STEP_SUMMARY
           cat execution_output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
