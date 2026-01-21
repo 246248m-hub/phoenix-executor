@@ -4,59 +4,37 @@ on:
   workflow_dispatch:
     inputs:
       task_payload:
-        description: 'Python code to execute'
         required: true
-      commander_repo:
-        description: 'Source repository for logging'
-        required: false
       run_id:
-        description: 'ID of the commander run'
         required: false
 
 jobs:
-  execute_ai_logic:
+  execute:
     runs-on: ubuntu-latest
     steps:
-      - name: 1.1 - Setup Environment
-        uses: actions/checkout@v4
-
-      - name: 1.2 - Install Common Dependencies
+      - name: 1.1 - Setup
         run: |
-          python -m pip install --upgrade pip
-          # إضافة مكاتب شائعة قد يحتاجها الذكاء الاصطناعي
-          pip install requests numpy pandas 
+          echo "${{ github.event.inputs.task_payload }}" > task.py
+          echo "--- CODE RECEIVED ---"
+          cat task.py
 
-      - name: 2.1 - Prepare Task File
+      - name: 2.1 - Run & Debug
         run: |
-          # استقبال الكود وحفظه في ملف
-          echo "Preparing to run task from: ${{ github.event.inputs.commander_repo }}"
-          cat << 'EOF_PYTHON' > task_execution.py
-          ${{ github.event.inputs.task_payload }}
-          EOF_PYTHON
-
-      - name: 2.2 - Run Payload & Capture Logs
-        id: run_step
-        run: |
-          echo "--- START OF AI EXECUTION ---"
-          # تشغيل الكود وحفظ المخرجات في ملف log
-          python3 task_execution.py > execution.log 2>&1
-          EXIT_CODE=$?
-          echo "--- END OF AI EXECUTION ---"
+          echo "--- EXECUTION START ---"
+          # تشغيل الكود مع صيد الأخطاء فوراً
+          python3 -u task.py 2>&1 | tee execution_output.log
           
-          cat execution.log
-          
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "Task failed with exit code $EXIT_CODE"
-            exit $EXIT_CODE
+          # فحص إذا كان هناك فشل
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "❌ Execution Failed"
+            exit 1
           fi
+          echo "--- EXECUTION SUCCESS ---"
 
-      - name: 3.1 - Post Execution Summary
+      - name: 3.1 - Summary
         if: always()
         run: |
-          echo "### Execution Report 🚀" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commander Run ID:** ${{ github.event.inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "#### Logs:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat execution.log | tail -n 20 >> $GITHUB_STEP_SUMMARY
+          echo "### Task ID: ${{ github.event.inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo '```python' >> $GITHUB_STEP_SUMMARY
+          cat execution_output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
