@@ -1,63 +1,62 @@
-name: 🦾 UNIVERSAL EXECUTOR
+name: 🛠️ PHOENIX EXECUTOR
 
 on:
   workflow_dispatch:
     inputs:
       task_payload:
-        description: 'Code to run'
+        description: 'Python code to execute'
         required: true
       commander_repo:
-        description: 'Repo of the commander'
-        required: true
+        description: 'Source repository for logging'
+        required: false
       run_id:
-        description: 'Original run ID'
-        required: true
+        description: 'ID of the commander run'
+        required: false
 
 jobs:
-  execute:
+  execute_ai_logic:
     runs-on: ubuntu-latest
     steps:
-      - name: 1.1 - Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+      - name: 1.1 - Setup Environment
+        uses: actions/checkout@v4
 
-      - name: 2.1 - Execute Task
-        id: execution
+      - name: 1.2 - Install Common Dependencies
         run: |
-          # حفظ الكود المستلم في ملف محلي
-          cat << 'EOF_PYTHON' > task.py
+          python -m pip install --upgrade pip
+          # إضافة مكاتب شائعة قد يحتاجها الذكاء الاصطناعي
+          pip install requests numpy pandas 
+
+      - name: 2.1 - Prepare Task File
+        run: |
+          # استقبال الكود وحفظه في ملف
+          echo "Preparing to run task from: ${{ github.event.inputs.commander_repo }}"
+          cat << 'EOF_PYTHON' > task_execution.py
           ${{ github.event.inputs.task_payload }}
           EOF_PYTHON
 
-          # تثبيت المكتبات إذا طلبها الكود عبر سطر # REQUIREMENTS:
-          if grep -q "# REQUIREMENTS:" task.py; then
-            echo "Installing dependencies..."
-            pip install $(grep "# REQUIREMENTS:" task.py | cut -d ':' -f 2)
+      - name: 2.2 - Run Payload & Capture Logs
+        id: run_step
+        run: |
+          echo "--- START OF AI EXECUTION ---"
+          # تشغيل الكود وحفظ المخرجات في ملف log
+          python3 task_execution.py > execution.log 2>&1
+          EXIT_CODE=$?
+          echo "--- END OF AI EXECUTION ---"
+          
+          cat execution.log
+          
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "Task failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
           fi
 
-          # تشغيل الكود والتقاط المخرجات (النجاح والخطأ)
-          python3 task.py > output.log 2>&1
-          EXIT_CODE=$?
-          echo "EXIT_CODE=$EXIT_CODE" >> $GITHUB_ENV
-          
-          # تجهيز المخرجات للإرسال (حماية من المشاكل البرمجية)
-          echo "LOG_OUTPUT<<EOF" >> $GITHUB_ENV
-          cat output.log >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-      - name: 3.1 - Report Back to Commander
+      - name: 3.1 - Post Execution Summary
         if: always()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.COMMANDER_PAT }}
-          script: |
-            const [owner, repo] = "${{ github.event.inputs.commander_repo }}".split('/');
-            const run_id = ${{ github.event.inputs.run_id }};
-            const output = process.env.LOG_OUTPUT;
-            const status = (process.env.EXIT_CODE == 0) ? "✅ SUCCESS" : "❌ FAILURE";
-
-            await github.rest.actions.createWorkflowRunComment({
-              owner, repo, run_id,
-              body: `### 🤖 تقرير التنفيذ (Execution Report)\n**الحالة:** ${status}\n\n**سجل التشغيل:**\n\`\`\`\n${output}\n\`\`\``
-            });
+        run: |
+          echo "### Execution Report 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commander Run ID:** ${{ github.event.inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "#### Logs:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat execution.log | tail -n 20 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
