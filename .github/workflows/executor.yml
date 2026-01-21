@@ -20,6 +20,7 @@ jobs:
       - name: 2.1 - Run & Debug
         run: |
           echo "--- EXECUTION START ---"
+          # تشغيل الكود وتخزين المخرجات والخطأ
           python3 -u task.py 2>&1 | tee execution_output.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "❌ Execution Failed"
