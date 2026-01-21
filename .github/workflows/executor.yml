@@ -12,7 +12,7 @@ jobs:
   execute:
     runs-on: ubuntu-latest
     steps:
-      - name: 1.1 - Prepare
+      - name: 1.1 - Prepare Task
         run: |
           echo "${{ github.event.inputs.task_payload }}" > task.py
           if [ ! -s task.py ]; then echo "❌ Empty Payload"; exit 1; fi
@@ -20,18 +20,18 @@ jobs:
       - name: 2.1 - Run & Debug
         run: |
           echo "--- EXECUTION START ---"
-          # استخدام تكتيك bash للحصول على تفاصيل الخطأ بدقة
-          python3 -u task.py 2>&1 | tee execution.log
+          python3 -u task.py 2>&1 | tee execution_output.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ Python Execution Failed"
+            echo "❌ Execution Failed"
             exit 1
           fi
           echo "--- SUCCESS ---"
 
-      - name: 3.1 - Report
+      - name: 3.1 - Generate Summary
         if: always()
         run: |
-          echo "### 🚀 System Feedback" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Evolution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "#### Output Log:" >> $GITHUB_STEP_SUMMARY
           echo '```python' >> $GITHUB_STEP_SUMMARY
-          cat execution.log >> $GITHUB_STEP_SUMMARY
+          cat execution_output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
