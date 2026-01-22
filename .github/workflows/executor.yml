@@ -6,7 +6,6 @@ on:
       task_payload:
         required: true
 
-# تأكيد الصلاحيات على مستوى الجوب
 permissions:
   contents: write
   actions: write
@@ -14,44 +13,42 @@ permissions:
 jobs:
   execute:
     runs-on: ubuntu-latest
-    # تعريف التوكن هنا يضمن وصوله لجميع الخطوات
-    env:
-      GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
-      GITHUB_TOKEN: ${{ secrets.COMMANDER_PAT }} 
     steps:
       - name: 1.1 - Decode
         run: |
           echo "${{ github.event.inputs.task_payload }}" | base64 -d > task.py
 
       - name: 2.1 - Run & Report
-        id: run_step
         env:
+          # نستخدم التوكن الخاص بك، وإذا فشل نستخدم توكن النظام الافتراضي
+          MY_TOKEN: ${{ secrets.COMMANDER_PAT }}
+          SYS_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
           REPO: "avatar-template"
         run: |
-          # محاولة تشغيل الكود
+          # تحديد التوكن الشغال
+          if [ -n "$MY_TOKEN" ]; then
+            export GH_TOKEN="$MY_TOKEN"
+          else
+            export GH_TOKEN="$SYS_TOKEN"
+            echo "⚠️ Warning: Using default System Token"
+          fi
+
           python3 task.py > output.log 2> error.log || echo "FAILED" > status.txt
           
           if [ -f status.txt ]; then
-            echo "⚠️ Reporting error to Commander..."
+            echo "⚠️ Reporting error..."
             ERR_B64=$(cat error.log | tail -c 1000 | base64 -w 0)
-            
-            # محاولة جلب SHA باستخدام التوكن مباشرة في الأمر كاحتياط إضافي
             SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
             
             if [ "$SHA" == "null" ]; then
-              gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt \
-                -f message="⚠️ Report Error" -f content="$ERR_B64"
+              gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt -f message="⚠️ Report" -f content="$ERR_B64"
             else
-              gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt \
-                -f message="⚠️ Update Error" -f content="$ERR_B64" -f sha="$SHA"
+              gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt -f message="⚠️ Update" -f content="$ERR_B64" -f sha="$SHA"
             fi
             exit 1
           else
-            echo "✅ Success. Clearing logs..."
+            echo "✅ Success"
             SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
-            if [ "$SHA" != "null" ]; then
-              gh api --method DELETE /repos/$OWNER/$REPO/contents/error_log.txt \
-                -f message="✅ Success Clean" -f sha="$SHA"
-            fi
+            [ "$SHA" != "null" ] && gh api --method DELETE /repos/$OWNER/$REPO/contents/error_log.txt -f message="✅ Clean" -f sha="$SHA" || true
           fi
