@@ -19,18 +19,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
           OWNER: ${{ github.repository_owner }}
+          REPO: "avatar-template"
         run: |
-          python3 task.py > output.log 2> error.log || export FAILED=true
+          # محاولة تشغيل الكود
+          python3 task.py > output.log 2> error.log || echo "FAILED" > status.txt
           
-          REPO="avatar-template"
-          if [ "$FAILED" = "true" ]; then
+          if [ -f status.txt ]; then
+            echo "⚠️ Reporting error to Commander..."
             ERR_B64=$(cat error.log | tail -c 1000 | base64 -w 0)
             SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
-            gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt \
-              -f message="⚠️ Report Error" -f content="$ERR_B64" \
-              ${{ (env.SHA != 'null') && format('-f sha={0}', env.SHA) || '' }}
+            
+            if [ "$SHA" == "null" ]; then
+              gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt \
+                -f message="⚠️ Report Error" -f content="$ERR_B64"
+            else
+              gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt \
+                -f message="⚠️ Update Error" -f content="$ERR_B64" -f sha="$SHA"
+            fi
             exit 1
           else
+            echo "✅ Success. Clearing logs..."
             SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
             if [ "$SHA" != "null" ]; then
               gh api --method DELETE /repos/$OWNER/$REPO/contents/error_log.txt \
