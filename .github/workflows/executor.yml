@@ -25,26 +25,33 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           REPO: "avatar-template"
         run: |
+          # اختيار التوكن المتاح
           [ -n "$GH_TOKEN" ] && CURRENT_TOKEN="$GH_TOKEN" || CURRENT_TOKEN="$SYS_TOKEN"
 
+          # تنفيذ الكود
           python3 task.py > output.log 2> error.log || echo "FAILED" > status.txt
           
           if [ -f status.txt ]; then
             echo "❌ Failed. Reporting..."
             ERR_B64=$(cat error.log | tail -c 1200 | base64 -w 0)
+            # جلب SHA مع ضمان عدم كسر السكربت (|| echo "null")
             SHA=$(GH_TOKEN=$CURRENT_TOKEN gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' 2>/dev/null || echo "null")
-            if [ "$SHA" == "null" ]; then
-              GH_TOKEN=$CURRENT_TOKEN gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt -f message="⚠️ Error" -f content="$ERR_B64"
+            
+            if [ "$SHA" == "null" ] || [ -z "$SHA" ]; then
+              GH_TOKEN=$CURRENT_TOKEN gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt -f message="⚠️ Error" -f content="$ERR_B64" || true
             else
-              GH_TOKEN=$CURRENT_TOKEN gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt -f message="⚠️ Update" -f content="$ERR_B64" -f sha="$SHA"
+              GH_TOKEN=$CURRENT_TOKEN gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt -f message="⚠️ Update" -f content="$ERR_B64" -f sha="$SHA" || true
             fi
             exit 1
           else
             echo "✅ Success. Cleaning up error logs safely..."
+            # محاولة المسح فقط إذا كان الملف موجوداً، مع تجاهل أي خطأ ناتج عن العملية
             SHA=$(GH_TOKEN=$CURRENT_TOKEN gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' 2>/dev/null || echo "null")
-            if [ "$SHA" != "null" ]; then
-              GH_TOKEN=$CURRENT_TOKEN gh api --method DELETE /repos/$OWNER/$REPO/contents/error_log.txt -f message="✅ Clean" -f sha="$SHA"
+            if [ "$SHA" != "null" ] && [ -n "$SHA" ]; then
+              GH_TOKEN=$CURRENT_TOKEN gh api --method DELETE /repos/$OWNER/$REPO/contents/error_log.txt -f message="✅ Clean" -f sha="$SHA" || echo "Already deleted."
             else
-              echo "Nothing to clean. All good."
+              echo "Nothing to clean. Move on."
             fi
+            # القوة الضاربة: نضمن الخروج بنجاح مهما حدث في خطوة التنظيف
+            exit 0
           fi
