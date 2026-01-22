@@ -1,4 +1,4 @@
-name: 🛠️ UNIVERSAL PHOENIX EXECUTOR
+name: 🛠️ PHOENIX EXECUTOR (The Resilient Body)
 
 on:
   workflow_dispatch:
@@ -15,27 +15,34 @@ jobs:
       - name: 1.1 - Checkout
         uses: actions/checkout@v4
 
-      - name: 1.2 - Decode
+      - name: 2.1 - Run & Capture
+        id: run_task
         run: |
           echo "${{ github.event.inputs.task_payload }}" | base64 -d > task.py
-          if [ ! -s task.py ]; then exit 1; fi
+          # تشغيل الكود مع صيد الخطأ
+          python3 task.py > output.log 2> error.log || echo "CRASHED" > fail.txt
 
-      - name: 2.1 - Auto-Deps
-        run: |
-          IMPORTS=$(grep -E '^(import|from)' task.py | awk '{print $2}' | cut -d. -f1 | sort -u)
-          for lib in $IMPORTS; do
-            python3 -c "import $lib" 2>/dev/null || pip install --no-cache-dir $lib || true
-          done
-
-      - name: 3.1 - Run
-        run: |
-          python3 -u task.py 2>&1 | tee execution.log
-          [ ${PIPESTATUS[0]} -eq 0 ] || exit 1
-
-      - name: 4.1 - Summary
+      - name: 3.1 - Report Back (Self-Healing Bridge)
         if: always()
+        env:
+          GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
         run: |
-          echo "### 🌐 Executor Report" >> $GITHUB_STEP_SUMMARY
-          echo '```python' >> $GITHUB_STEP_SUMMARY
-          [ -f execution.log ] && cat execution.log >> $GITHUB_STEP_SUMMARY || echo "No logs" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          OWNER="${{ github.repository_owner }}"
+          REPO="avatar-template"
+          
+          if [ -f fail.txt ]; then
+            # إرسال تقرير الفشل ليتم إصلاحه في الدورة القادمة
+            ERR_B64=$(cat error.log | tail -c 1000 | base64 -w 0)
+            SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
+            
+            gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt \
+              -f message="⚠️ Report Error" -f content="$ERR_B64" \
+              ${{ (env.SHA != 'null') && format('-f sha={0}', env.SHA) || '' }}
+          else
+            # في حال النجاح، مسح سجل الأخطاء القديم
+            SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
+            if [ "$SHA" != "null" ]; then
+              gh api --method DELETE /repos/$OWNER/$REPO/contents/error_log.txt \
+                -f message="✅ Success Clean" -f sha="$SHA"
+            fi
+          fi
