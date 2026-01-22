@@ -1,45 +1,36 @@
-name: 🛠️ PHOENIX EXECUTOR (The Resilient Body)
+name: 🛠️ PHOENIX EXECUTOR
 
 on:
   workflow_dispatch:
     inputs:
       task_payload:
         required: true
-      run_id:
-        required: false
 
 jobs:
   execute:
     runs-on: ubuntu-latest
     steps:
-      - name: 1.1 - Checkout
-        uses: actions/checkout@v4
-
-      - name: 2.1 - Run & Capture
-        id: run_task
+      - name: 1.1 - Decode
         run: |
           echo "${{ github.event.inputs.task_payload }}" | base64 -d > task.py
-          # تشغيل الكود مع صيد الخطأ
-          python3 task.py > output.log 2> error.log || echo "CRASHED" > fail.txt
 
-      - name: 3.1 - Report Back (Self-Healing Bridge)
-        if: always()
+      - name: 2.1 - Run & Report
+        id: run_step
         env:
           GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          OWNER="${{ github.repository_owner }}"
-          REPO="avatar-template"
+          python3 task.py > output.log 2> error.log || export FAILED=true
           
-          if [ -f fail.txt ]; then
-            # إرسال تقرير الفشل ليتم إصلاحه في الدورة القادمة
+          REPO="avatar-template"
+          if [ "$FAILED" = "true" ]; then
             ERR_B64=$(cat error.log | tail -c 1000 | base64 -w 0)
             SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
-            
             gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt \
               -f message="⚠️ Report Error" -f content="$ERR_B64" \
               ${{ (env.SHA != 'null') && format('-f sha={0}', env.SHA) || '' }}
+            exit 1
           else
-            # في حال النجاح، مسح سجل الأخطاء القديم
             SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
             if [ "$SHA" != "null" ]; then
               gh api --method DELETE /repos/$OWNER/$REPO/contents/error_log.txt \
