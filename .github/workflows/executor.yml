@@ -6,9 +6,18 @@ on:
       task_payload:
         required: true
 
+# تأكيد الصلاحيات على مستوى الجوب
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   execute:
     runs-on: ubuntu-latest
+    # تعريف التوكن هنا يضمن وصوله لجميع الخطوات
+    env:
+      GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
+      GITHUB_TOKEN: ${{ secrets.COMMANDER_PAT }} 
     steps:
       - name: 1.1 - Decode
         run: |
@@ -17,7 +26,6 @@ jobs:
       - name: 2.1 - Run & Report
         id: run_step
         env:
-          GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
           OWNER: ${{ github.repository_owner }}
           REPO: "avatar-template"
         run: |
@@ -27,6 +35,8 @@ jobs:
           if [ -f status.txt ]; then
             echo "⚠️ Reporting error to Commander..."
             ERR_B64=$(cat error.log | tail -c 1000 | base64 -w 0)
+            
+            # محاولة جلب SHA باستخدام التوكن مباشرة في الأمر كاحتياط إضافي
             SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
             
             if [ "$SHA" == "null" ]; then
