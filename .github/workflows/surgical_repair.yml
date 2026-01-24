@@ -1,0 +1,23 @@
+name: 💉 Surgical Repair Unit
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo: { required: true }
+      target_file: { required: true }
+      new_content_b64: { required: true }
+jobs:
+  perform_surgery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Perform Genetic Surgery
+        env:
+          GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
+          TARGET_REPO: ${{ github.event.inputs.target_repo }}
+          TARGET_FILE: ${{ github.event.inputs.target_file }}
+          NEW_CONTENT: ${{ github.event.inputs.new_content_b64 }}
+        run: |
+          echo "Performing surgery on $TARGET_REPO/$TARGET_FILE..."
+          SHA=$(gh api /repos/$TARGET_REPO/contents/$TARGET_FILE --jq '.sha')
+          gh api --method PUT /repos/$TARGET_REPO/contents/$TARGET_FILE -f message="🧠✨ Commander Self-Correction" -f content="$NEW_CONTENT" -f sha="$SHA"
+          echo "Surgery complete. The target has evolved."
+
