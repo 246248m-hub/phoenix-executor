@@ -1,23 +1,41 @@
-name: 💉 Surgical Repair Unit
+name: 🧬 Surgical Self-Repair
+
 on:
   workflow_dispatch:
     inputs:
-      target_repo: { required: true }
-      target_file: { required: true }
-      new_content_b64: { required: true }
+      target_file:
+        description: 'The full path of the commander file to be repaired (e.g., .github/workflows/genesis_commander.yml)'
+        required: true
+      new_content_b64:
+        description: 'The new Base64 encoded content for the file'
+        required: true
+
 jobs:
-  perform_surgery:
+  apply_surgery:
     runs-on: ubuntu-latest
     steps:
       - name: Perform Genetic Surgery
         env:
           GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
-          TARGET_REPO: ${{ github.event.inputs.target_repo }}
+          # استبدل 'avatar-template' بالاسم الفعلي لمستودع القائد
+          COMMANDER_REPO: "avatar-template" 
           TARGET_FILE: ${{ github.event.inputs.target_file }}
           NEW_CONTENT: ${{ github.event.inputs.new_content_b64 }}
         run: |
-          echo "Performing surgery on $TARGET_REPO/$TARGET_FILE..."
-          SHA=$(gh api /repos/$TARGET_REPO/contents/$TARGET_FILE --jq '.sha')
-          gh api --method PUT /repos/$TARGET_REPO/contents/$TARGET_FILE -f message="🧠✨ Commander Self-Correction" -f content="$NEW_CONTENT" -f sha="$SHA"
-          echo "Surgery complete. The target has evolved."
-
+          echo "Starting surgical procedure on commander: $COMMANDER_REPO"
+          
+          # 1. الحصول على SHA للملف الحالي لضمان التحديث الآمن
+          SHA=$(gh api /repos/${{ github.repository_owner }}/$COMMANDER_REPO/contents/$TARGET_FILE --jq '.sha')
+          
+          if [ -z "$SHA" ]; then
+            echo "FATAL: Could not retrieve SHA for target file. Surgery aborted."
+            exit 1
+          fi
+          
+          # 2. تطبيق التغيير الجراحي
+          gh api --method PUT /repos/${{ github.repository_owner }}/$COMMANDER_REPO/contents/$TARGET_FILE \
+            -f message="🧠✨ Commander Self-Correction via Surgical Repair" \
+            -f content="$NEW_CONTENT" \
+            -f sha="$SHA"
+            
+          echo "Surgery complete. The commander has evolved."
