@@ -1,30 +1,72 @@
-name: 🛠️ PHOENIX EXECUTOR
+name: 🛠️ PHOENIX EXECUTOR (The Resilient Body)
+
 on:
   workflow_dispatch:
     inputs:
       task_payload:
         required: true
+
 jobs:
   execute:
     runs-on: ubuntu-latest
     steps:
-      - name: Decode
-        run: echo "${{ github.event.inputs.task_payload }}" | base64 -d > task.py
-      - name: Run & Report
+      # -----------------------------------------------------
+      # 1. استقبال الأمر وفك تشفيره
+      # -----------------------------------------------------
+      - name: 1.1 - Decode Order
+        run: |
+          echo "${{ github.event.inputs.task_payload }}" | base64 -d > task.py
+          if [ ! -s task.py ]; then
+            echo "FATAL: Payload was empty." > error.log
+            exit 1
+          fi
+
+      # -----------------------------------------------------
+      # 2. التنفيذ الصارم والتقاط النتائج
+      # -----------------------------------------------------
+      - name: 2.1 - Execute & Capture
+        id: run_step
+        run: |
+          # تشغيل الكود وتوجيه كل المخرجات (النجاح والخطأ) إلى ملفات منفصلة
+          # واستخدام '|| export FAILED=true' لضمان التقاط أي فشل
+          python3 task.py > output.log 2> error.log || export FAILED=true
+          
+          # إذا فشل التنفيذ، نعتبر سجل الخطأ هو المخرج الرئيسي
+          if [ "$FAILED" = "true" ]; then
+            mv error.log output.log
+          fi
+
+      # -----------------------------------------------------
+      # 3. الإبلاغ الصادق (الجسر الجيني)
+      # -----------------------------------------------------
+      - name: 3.1 - Report Back to Commander
+        if: always() # الإبلاغ دائماً، سواء نجح أم فشل
         env:
           GH_TOKEN: ${{ secrets.COMMANDER_PAT }}
           OWNER: ${{ github.repository_owner }}
+          # استبدل 'avatar-template' بالاسم الفعلي لمستودع القائد إذا كان مختلفاً
+          COMMANDER_REPO: "avatar-template" 
         run: |
-          python3 task.py > output.log 2> error.log || export FAILED=true
-          REPO="avatar-template"
-          if [ "$FAILED" = "true" ]; then
+          # إذا كان هناك فشل، أبلغ عن الخطأ
+          if [ -s error.log ]; then
+            # تشفير الخطأ لإرساله
             ERR_B64=$(cat error.log | tail -c 1000 | base64 -w 0)
-            SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
-            gh api --method PUT /repos/$OWNER/$REPO/contents/error_log.txt -f message="⚠️ Report Error" -f content="$ERR_B64" ${{ (env.SHA != 'null') && format('-f sha={0}', env.SHA) || '' }}
-            exit 1
-          else
-            SHA=$(gh api /repos/$OWNER/$REPO/contents/error_log.txt --jq '.sha' || echo "null")
+            # الحصول على SHA للملف القديم (إذا كان موجوداً) لتحديثه
+            SHA=$(gh api /repos/$OWNER/$COMMANDER_REPO/contents/error_log.txt --jq '.sha' 2>/dev/null || echo "null")
+            
+            # بناء أمر التحديث أو الإنشاء
+            UPDATE_CMD="gh api --method PUT /repos/$OWNER/$COMMANDER_REPO/contents/error_log.txt -f message='⚠️ Report: Execution Failure' -f content='$ERR_B64'"
             if [ "$SHA" != "null" ]; then
-              gh api --method DELETE /repos/$OWNER/$REPO/contents/error_log.txt -f message="✅ Success Clean" -f sha="$SHA"
+              UPDATE_CMD="$UPDATE_CMD -f sha='$SHA'"
+            fi
+            eval $UPDATE_CMD
+
+          # إذا كان هناك نجاح، تأكد من أن سجل الأخطاء نظيف
+          else
+            # التحقق مما إذا كان ملف الأخطاء موجوداً في مستودع القائد
+            SHA=$(gh api /repos/$OWNER/$COMMANDER_REPO/contents/error_log.txt --jq '.sha' 2>/dev/null || echo "null")
+            # إذا كان موجوداً، قم بحذفه
+            if [ "$SHA" != "null" ]; then
+              gh api --method DELETE /repos/$OWNER/$COMMANDER_REPO/contents/error_log.txt -f message='✅ Report: Success, Error Log Cleared' -f sha="$SHA"
             fi
           fi
