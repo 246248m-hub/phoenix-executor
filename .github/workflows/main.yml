@@ -1,94 +1,119 @@
-name: 🧬 GENESIS COMMANDER (The Architect)
+name: Build Android APK
 
+# هذا يجعل الـ Workflow يعمل يدويًا عند الضغط على زر
 on:
   workflow_dispatch:
-    inputs:
-      custom_objective:
-        description: 'Objective'
-        required: false
-        default: 'Build a modular AI core from scratch: Start with a persistent memory management system and a dynamic execution engine.'
 
 jobs:
-  genesis_learning_cycle:
+  build:
+    # سيتم تشغيل هذا على سيرفر Linux من GitHub
     runs-on: ubuntu-latest
+
     steps:
-      - name: 1.1 - Checkout
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.COMMANDER_PAT }}
+    # الخطوة 1: تجهيز بيئة Java (ضرورية لأندرويد)
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
 
-      - name: 1.2 - Setup
-        run: mkdir -p knowledge_base
+    # الخطوة 2: إنشاء هيكل مجلدات المشروع من الصفر
+    - name: Create Project Directory Structure
+      run: |
+        mkdir -p app/src/main/java/com/test/app
+        mkdir -p app/src/main/res/layout
+        mkdir -p app/src/main/res/values
 
-      - name: 2.1 - Architect Generation (Gemini 2.5)
-        id: gemini_task
-        env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          OBJECTIVE: ${{ github.event.inputs.custom_objective }}
-        run: |
-          KNOWLEDGE=$(find knowledge_base -maxdepth 1 -name 'task_*.py' -print0 | xargs -0 cat 2>/dev/null | tail -c 4000 || echo "Initial State: No core exists yet.")
-          
-          # برومبت البناء من الصفر
-          PROMPT="You are the ARCHITECT AI. 
-          OBJECTIVE: $OBJECTIVE
-          CURRENT_CORE_FILES: $KNOWLEDGE
-          
-          Your Task: Write the next Python module for this AI system.
-          - DO NOT use pre-trained models (like GPT2/Transformers).
-          - Build everything from basic Python logic and standard libraries.
-          - Create actual functional components (Memory, Routing, Logic Gates, or Data structures).
-          - Respond ONLY with raw Python code. Start with # REQUIREMENTS: if needed."
+    # الخطوة 3: كتابة ملفات الكود الأساسية ديناميكيًا
+    - name: Write AndroidManifest.xml
+      run: |
+        echo '<?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            package="com.test.app">
+            <application
+                android:allowBackup="true"
+                android:label="Hello World App"
+                android:theme="@android:style/Theme.Material.Light">
+                <activity android:name=".MainActivity" android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>' > app/src/main/AndroidManifest.xml
 
-          JSON_DATA=$(jq -n --arg p "$PROMPT" '{contents: [{parts: [{text: $p}]}]}')
-          API_URL="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
-          
-          RESPONSE=$(curl -s -X POST \
-            -H "Content-Type: application/json" \
-            -H "x-goog-api-key: ${GOOGLE_API_KEY}" \
-            -d "$JSON_DATA" \
-            "$API_URL")
+    - name: Write MainActivity.kt
+      run: |
+        echo 'package com.test.app
 
-          TASK_CODE=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' | sed -e 's/^```python//' -e 's/^```//' -e 's/```$//' | sed '/./,$!d')
+        import android.app.Activity
+        import android.os.Bundle
+        import android.widget.TextView
 
-          if [ -z "$TASK_CODE" ] || [ "$TASK_CODE" == "null" ]; then
-            echo "❌ API Error"
-            exit 1
-          fi
-          
-          echo "task_payload<<EOF" >> $GITHUB_ENV
-          echo "$TASK_CODE" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-      - name: 3.1 - Dispatch to Executor
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: executor.yml
-          repo: 246248m-hub/phoenix-executor
-          token: ${{ secrets.COMMANDER_PAT }}
-          inputs: >
-            {
-              "task_payload": ${{ toJson(env.task_payload) }},
-              "commander_repo": "${{ github.repository }}",
-              "run_id": "${{ github.run_id }}"
+        class MainActivity : Activity() {
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                val textView = TextView(this)
+                textView.text = "Hello from GitHub Actions!"
+                textView.textSize = 24f
+                setContentView(textView)
             }
+        }' > app/src/main/java/com/test/app/MainActivity.kt
 
-      - name: 4.1 - Update Core Knowledge
-        if: success()
-        run: |
-          NEXT=$(( $(find knowledge_base -maxdepth 1 -name 'task_*.py' | wc -l) + 1 ))
-          echo "${{ env.task_payload }}" > "knowledge_base/task_${NEXT}.py"
-          git config --global user.name 'Phoenix Architect'
-          git config --global user.email 'architect@phoenix.ai'
-          git add .
-          git commit -m "Core Evolution: Task $NEXT"
-          git push || echo "No changes"
+    - name: Write Gradle Build Scripts
+      run: |
+        echo '
+        buildscript {
+            repositories {
+                google()
+                mavenCentral()
+            }
+            dependencies {
+                classpath "com.android.tools.build:gradle:8.2.0"
+                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.20"
+            }
+        }
+        allprojects {
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }' > build.gradle
 
-      - name: 5.1 - Recursive Loop
-        if: always()
-        run: |
-          sleep 300
-          curl -L -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.COMMANDER_PAT }}" \
-            [https://api.github.com/repos/$](https://api.github.com/repos/$){{ github.repository }}/actions/workflows/genesis_commander.yml/dispatches \
-            -d '{"ref":"main", "inputs": {"custom_objective": "${{ github.event.inputs.custom_objective }}"}}'
+        echo '
+        plugins {
+            id "com.android.application"
+            id "kotlin-android"
+        }
+        android {
+            namespace "com.test.app"
+            compileSdkVersion 34
+            defaultConfig {
+                applicationId "com.test.app"
+                minSdkVersion 26
+                targetSdkVersion 34
+                versionCode 1
+                versionName "1.0"
+            }
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }' > app/build.gradle
+
+    # الخطوة 4: بناء التطبيق باستخدام Gradle
+    - name: Build APK
+      run: |
+        chmod +x gradlew
+        ./gradlew :app:assembleRelease
+
+    # الخطوة 5: رفع ملف APK الناتج كـ "قطعة أثرية"
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: HelloWorldApp
+        path: app/build/outputs/apk/release/app-release.apk
