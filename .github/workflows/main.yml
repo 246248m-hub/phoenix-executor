@@ -1,119 +1,175 @@
-name: Build Android APK
-
-# هذا يجعل الـ Workflow يعمل يدويًا عند الضغط على زر
-on:
-  workflow_dispatch:
+name: Ultimate-AI-Aimbot-Project
+on: [push, workflow_dispatch]
 
 jobs:
   build:
-    # سيتم تشغيل هذا على سيرفر Linux من GitHub
     runs-on: ubuntu-latest
-
     steps:
-    # الخطوة 1: تجهيز بيئة Java (ضرورية لأندرويد)
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    # الخطوة 2: إنشاء هيكل مجلدات المشروع من الصفر
-    - name: Create Project Directory Structure
-      run: |
-        mkdir -p app/src/main/java/com/test/app
-        mkdir -p app/src/main/res/layout
-        mkdir -p app/src/main/res/values
+      - name: Setup Python & Generate Model
+        run: |
+          pip install ultralytics tensorflow
+          python - <<EOF
+          from ultralytics import YOLO
+          # تحميل موديل نانو وتكميمه بالكامل لتقليل الرام والحرارة
+          model = YOLO('yolov8n.pt') 
+          model.export(format='tflite', imgsz=160, int8=True, optimize=True)
+          EOF
 
-    # الخطوة 3: كتابة ملفات الكود الأساسية ديناميكيًا
-    - name: Write AndroidManifest.xml
-      run: |
-        echo '<?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-            package="com.test.app">
-            <application
-                android:allowBackup="true"
-                android:label="Hello World App"
-                android:theme="@android:style/Theme.Material.Light">
-                <activity android:name=".MainActivity" android:exported="true">
-                    <intent-filter>
-                        <action android:name="android.intent.action.MAIN" />
-                        <category android:name="android.intent.category.LAUNCHER" />
-                    </intent-filter>
-                </activity>
-            </application>
-        </manifest>' > app/src/main/AndroidManifest.xml
+      - name: Setup Java 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Write MainActivity.kt
-      run: |
-        echo 'package com.test.app
+      - name: Create Android Source Code
+        run: |
+          # 1. إنشاء المجلدات
+          mkdir -p app/src/main/java/com/test/aimbot
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/xml
 
-        import android.app.Activity
-        import android.os.Bundle
-        import android.widget.TextView
+          # 2. نقل الموديل المكمم للأصول (Assets)
+          find . -name "*int8.tflite" -exec cp {} app/src/main/assets/model.tflite \;
 
-        class MainActivity : Activity() {
-            override fun onCreate(savedInstanceState: Bundle?) {
-                super.onCreate(savedInstanceState)
-                val textView = TextView(this)
-                textView.text = "Hello from GitHub Actions!"
-                textView.textSize = 24f
-                setContentView(textView)
-            }
-        }' > app/src/main/java/com/test/app/MainActivity.kt
+          # 3. إعداد الـ Manifest (الأذونات)
+          cat <<EOF > app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.test.aimbot">
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <application android:label="AI-Test-Tool" android:theme="@android:style/Theme.DeviceDefault">
+                  <service android:name=".AimService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
+                      <intent-filter><action android:name="android.view.AccessibilityService"/></intent-filter>
+                      <meta-data android:name="android.view.AccessibilityService" android:resource="@xml/service_config"/>
+                  </service>
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
 
-    - name: Write Gradle Build Scripts
-      run: |
-        echo '
-        buildscript {
-            repositories {
-                google()
-                mavenCentral()
-            }
-            dependencies {
-                classpath "com.android.tools.build:gradle:8.2.0"
-                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.20"
-            }
-        }
-        allprojects {
-            repositories {
-                google()
-                mavenCentral()
-            }
-        }' > build.gradle
+          # 4. إعداد واجهة الزر العائم
+          cat <<EOF > app/src/main/res/layout/floating_layout.xml
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="wrap_content" android:layout_height="wrap_content">
+              <Button android:id="@+id/btn_toggle" android:text="START AI" android:background="#00FF00"
+                  android:layout_width="80dp" android:layout_height="50dp" android:textColor="#000000"/>
+          </LinearLayout>
+          EOF
 
-        echo '
-        plugins {
-            id "com.android.application"
-            id "kotlin-android"
-        }
-        android {
-            namespace "com.test.app"
-            compileSdkVersion 34
-            defaultConfig {
-                applicationId "com.test.app"
-                minSdkVersion 26
-                targetSdkVersion 34
-                versionCode 1
-                versionName "1.0"
-            }
-            compileOptions {
-                sourceCompatibility JavaVersion.VERSION_17
-                targetCompatibility JavaVersion.VERSION_17
-            }
-            kotlinOptions {
-                jvmTarget = "17"
-            }
-        }' > app/build.gradle
+          # 5. إعداد ملف إمكانية الوصول
+          cat <<EOF > app/src/main/res/xml/service_config.xml
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeAllMask" android:accessibilityFeedbackType="feedbackGeneric"
+              android:canPerformGestures="true" android:description="@string/desc" />
+          EOF
+          echo '<resources><string name="desc">AI Vision Test Service</string></resources>' > app/src/main/res/values/strings.xml
 
-    # الخطوة 4: بناء التطبيق باستخدام Gradle
-    - name: Build APK
-      run: |
-        chmod +x gradlew
-        ./gradlew :app:assembleRelease
+          # 6. كود الجافا (المنطق التقني للسحب والزر العائم)
+          cat <<EOF > app/src/main/java/com/test/aimbot/AimService.java
+          package com.test.aimbot;
+          import android.accessibilityservice.AccessibilityService;
+          import android.accessibilityservice.GestureDescription;
+          import android.graphics.Path;
+          import android.view.LayoutInflater;
+          import android.view.View;
+          import android.view.WindowManager;
+          import android.widget.Button;
 
-    # الخطوة 5: رفع ملف APK الناتج كـ "قطعة أثرية"
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: HelloWorldApp
-        path: app/build/outputs/apk/release/app-release.apk
+          public class AimService extends AccessibilityService {
+              private WindowManager wm;
+              private View floatingView;
+              private boolean isRunning = false;
+
+              @Override
+              public void onServiceConnected() {
+                  wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+                  floatingView = LayoutInflater.from(this).inflate(R.layout.floating_layout, null);
+                  final Button btn = floatingView.findViewById(R.id.btn_toggle);
+                  
+                  WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, -2);
+                  
+                  btn.setOnClickListener(v -> {
+                      isRunning = !isRunning;
+                      btn.setText(isRunning ? "AI: ON" : "AI: OFF");
+                      btn.setBackgroundColor(isRunning ? 0xFF00FF00 : 0xFFFF0000);
+                  });
+                  wm.addView(floatingView, params);
+              }
+
+              // دالة السحب الآني (Instant Snap) لمركز شاشة 720x1600
+              public void instantAim(float tx, float ty) {
+                  if (!isRunning) return;
+                  Path path = new Path();
+                  path.moveTo(360, 800); // منتصف الشاشة
+                  path.lineTo(tx, ty);   // موقع الرأس
+                  GestureDescription.Builder gb = new GestureDescription.Builder();
+                  gb.addStroke(new GestureDescription.StrokeDescription(path, 0, 10));
+                  dispatchGesture(gb.build(), null, null);
+              }
+
+              @Override public void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent e) {}
+              @Override public void onInterrupt() {}
+          }
+          EOF
+
+          # 7. كود واجهة التشغيل لطلب الأذونات
+          cat <<EOF > app/src/main/java/com/test/aimbot/MainActivity.java
+          package com.test.aimbot;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.provider.Settings;
+
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  // طلب إذن الظهور فوق التطبيقات
+                  if (!Settings.canDrawOverlays(this)) {
+                      startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+                  }
+                  // توجيه المستخدم لتفعيل Accessibility
+                  startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+              }
+          }
+          EOF
+
+          # 8. ملفات الـ Build (Gradle)
+          echo "include ':app'" > settings.gradle
+          cat <<EOF > build.gradle
+          buildscript { repositories { google(); mavenCentral() }
+          dependencies { classpath 'com.android.tools.build:gradle:8.1.0' } }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          cat <<EOF > app/build.gradle
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.test.aimbot'
+              compileSdk 33
+              defaultConfig { applicationId "com.test.aimbot"; minSdk 24; targetSdk 33; versionCode 1; versionName "1.0" }
+          }
+          EOF
+
+      - name: Build APK
+        run: |
+          # تحميل ملفات Gradle وبناء الـ APK
+          chmod +x gradlew || true
+          gradle assembleDebug
+
+      - name: Upload Finished APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Aimbot-Instant-NoRoot
+          path: app/build/outputs/apk/debug/*.apk
+
